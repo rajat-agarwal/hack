@@ -5,20 +5,19 @@ from urllib.parse import urlparse, urljoin
 import urllib.request as requester
 import traceback
 import requests
+import json
+import time
 
-apiPrevData = [
-{
- "pageURL": "http://bbmp.gov.in/en/about-us",
- 'Link': 'http://www.discoverbangalore.com/History.htm',
- 'Text': 'www.discoverbangalore.com'
-},
-{
- "pageURL": "http://bbmp.gov.in/en/web/guest/engineering",
- 'Link': 'de',
- 'Text': 'dssd'
-},
-]
-
+class metaOutput:
+    def __init__(self,pageUrl, linkUrl, linkText, lastUpdatedTime):
+        self.pageUrl = pageUrl
+        self.linkUrl = linkUrl
+        self.linkText = linkText
+        self.lastUpdatedTime = lastUpdatedTime
+        
+    def toJSON(self):
+        return json.dumps(self, default=lambda o: o.__dict__, sort_keys=True, indent=4)
+        
 class WebCrawl:
     def __init__(self, web_link, *args,**kwargs):
         super(WebCrawl,self).__init__(*args,**kwargs)
@@ -60,50 +59,61 @@ class WebCrawl:
             raise Exception
         return(resp.json())
 
-#     def postDataToApi(self, retData):
-#         resp = requests.post('', json=retData)
-#         if resp.status_code != 200:
-#             print('Error: Server returned status code '.format(resp.status_code) )
-#             raise Exception
+    def postDataToApi(self, page_url, retData):
+        try:
+            postUrl = "https://webcrawlerbackend.azurewebsites.net/api/deltaResult?pageurl=" + page_url
+            print("postUrl=" + postUrl)
+            resp = requests.post(postUrl, json=retData)
+            print("response code = ")
+            print(resp.status_code)
+#             if resp.status_code != 200:
+#                 print('Error: Server returned status code '.format(resp.status_code) )
+#                 raise Exception
+        except Exception as e:
+            print(traceback.format_exc())
+            return
 
 
     def compareAndPush(self, page_url, page_links):
         apiData = self.getDataFromApi(page_url)
-#         apiData = apiPrevData
+        ts = time.time()
 
         retData = {
-                'pageURL': page_url,
-                'insert':{},
-                'delete':{}
+                'Insert':{},
+                'Delete':{}
                 }
-
+    
         prevLink = []
         prevText = []
         for apiObj in apiData['pages']:
             prevLink.append(apiObj['linkUrl'])
-            prevText.append(apiObj['linktext'])    
+            prevText.append(apiObj['linkText'])    
 
+        pages = []
         #Added
         for key, value in page_links.items():
-            print("Harsh key=" + key + " val=" + value)
+#             print("Harsh key=" + key + " val=" + value)
             if key not in prevLink:
-                retData['insert'][key] = value
+                pages.append(metaOutput(page_url, key, value, ts).toJSON())
+        retData['Insert']['pages'] = pages
 
         i=0
+        pages = []
         #Deleted
         while i < len(prevLink):
             if prevLink[i] not in page_links:
-                retData['delete'][prevLink[i]] = prevText[i]            
+                pages.append(metaOutput(page_url, prevLink[i], prevText[i], ts).toJSON())            
             i = i+1
+        retData['Delete']['pages'] = pages
 
         #Print    
-        print("INSERT")
-        print(retData['insert'])
+#         print("INSERT")
+        print(retData)
 
-        print("DELETE")
-        print(retData['delete'])
+#         print("DELETE")
+#         print(retData['Delete'])
 
-    #    postDataToApi(retData)
+        self.postDataToApi(page_url, retData)
     
     
     def followLink(self,depth=1):
@@ -119,11 +129,12 @@ class WebCrawl:
             
             for key, value in href_dict.items():
                 if key.startswith('http://bbmp.gov.in/en'):
-                    print("Rajat key = " + key + " value = " + value)
+#                     print("Rajat key = " + key + " value = " + value)
                     self.web_url = key
                     self.followLink(depth-1)
         except Exception as e:
-            print("ERROR: Could not open {0}: {1}".format(self.web_url,e))
+            print(traceback.format_exc())
+            print("ERROR: Could not open {0} : {1}".format(self.web_url,e))
             return
         
         return
