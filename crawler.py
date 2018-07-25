@@ -5,19 +5,9 @@ from urllib.parse import urlparse, urljoin
 import urllib.request as requester
 import traceback
 import requests
-import json
-import time
+from json import dumps
+import datetime
 
-class metaOutput:
-    def __init__(self,pageUrl, linkUrl, linkText, lastUpdatedTime):
-        self.pageUrl = pageUrl
-        self.linkUrl = linkUrl
-        self.linkText = linkText
-        self.lastUpdatedTime = lastUpdatedTime
-        
-    def toJSON(self):
-        return json.dumps(self, default=lambda o: o.__dict__, sort_keys=True, indent=4)
-        
 class WebCrawl:
     def __init__(self, web_link, *args,**kwargs):
         super(WebCrawl,self).__init__(*args,**kwargs)
@@ -33,9 +23,6 @@ class WebCrawl:
         response = dict()
         html_parse = BeautifulSoup(url_response)
         for atag in html_parse.findAll('a'):
-#             astr = str(atag)
-#             astr = re.sub(r'\s+', ' ', astr)
-#             print(astr)
             try:
                 key = atag['href']
                 #make url's absolute if found relative
@@ -63,57 +50,46 @@ class WebCrawl:
         try:
             postUrl = "https://webcrawlerbackend.azurewebsites.net/api/deltaResult?pageurl=" + page_url
             print("postUrl=" + postUrl)
-            resp = requests.post(postUrl, json=retData)
+            print(retData)
+            resp = requests.post(postUrl, retData)
             print("response code = ")
             print(resp.status_code)
-#             if resp.status_code != 200:
-#                 print('Error: Server returned status code '.format(resp.status_code) )
-#                 raise Exception
         except Exception as e:
             print(traceback.format_exc())
             return
 
+    def getDayMonthYear(self):
+        return ((str(datetime.datetime.now())).split(' ')[0]).split('-')[2] + '-' + ((str(datetime.datetime.now())).split(' ')[0]).split('-')[1] + '-' + ((str(datetime.datetime.now())).split(' ')[0]).split('-')[0]
 
     def compareAndPush(self, page_url, page_links):
         apiData = self.getDataFromApi(page_url)
-        ts = time.time()
+        date = self.getDayMonthYear()
 
-        retData = {
-                'Insert':{},
-                'Delete':{}
-                }
-    
         prevLink = []
         prevText = []
-        for apiObj in apiData['pages']:
-            prevLink.append(apiObj['linkUrl'])
-            prevText.append(apiObj['linkText'])    
+        for apiObj in apiData["pages"]:
+            prevLink.append(apiObj["linkUrl"])
+            prevText.append(apiObj["linkText"])    
 
+        retData = {"Insert":{},  "Delete":{}}
         pages = []
         #Added
         for key, value in page_links.items():
 #             print("Harsh key=" + key + " val=" + value)
             if key not in prevLink:
-                pages.append(metaOutput(page_url, key, value, ts).toJSON())
-        retData['Insert']['pages'] = pages
+                pages = pages + [{"lastUpdatedTime": date, "linkUrl": key, "linkText": value, "pageUrl": page_url}]
+        retData["Insert"]["pages"] = pages
 
         i=0
         pages = []
         #Deleted
         while i < len(prevLink):
             if prevLink[i] not in page_links:
-                pages.append(metaOutput(page_url, prevLink[i], prevText[i], ts).toJSON())            
-            i = i+1
+                pages = pages + [{"lastUpdatedTime": date, "linkUrl": prevLink[i], "linkText": prevText[i], "pageUrl": page_url}]
+                i = i+1
         retData['Delete']['pages'] = pages
-
-        #Print    
-#         print("INSERT")
-        print(retData)
-
-#         print("DELETE")
-#         print(retData['Delete'])
-
-        self.postDataToApi(page_url, retData)
+        
+        self.postDataToApi(page_url, json.dumps(retData))
     
     
     def followLink(self,depth=1):
@@ -138,3 +114,6 @@ class WebCrawl:
             return
         
         return
+
+obj = WebCrawl('http://bbmp.gov.in/en/web/guest/engineering')
+obj.followLink(1)
